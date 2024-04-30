@@ -1,0 +1,437 @@
+---
+title: "Data Science Final Project"
+topi: "Predicting healthcare customer as Expensive or Not Expensive"
+output: html_document
+date: "2022-12-05"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## The Data
+
+The	dataset	contains	healthcare cost	information from	an	HMO	(Health	Management	
+Organization). Each row	in	the	dataset	represents a	person.
+
+Let us first load the data into R environment and look the attributes consisted in it.
+
+```{r}
+library(tidyverse)
+# Load the data set of healthcare customers
+train_set <- read.csv("https://intro-datascience.s3.us-east-2.amazonaws.com/HMO_data.csv")
+
+# Look at columns of the dataset
+str(train_set)
+```
+
+Look at the values of the columns and understand their nature
+- summarize the data and check statistical descriptions of columns in the data frame
+
+```{r}
+# summary() used to get statistical descriptions of columns
+
+summary(train_set)
+```
+## Statistical Values
+
+Age - mean=39, median 39            1st Quantile - 26,   3rd Quantile - 51
+BMI - mean=30.8, median 30.5        1st Quantile - 26.6  3rd Quantile - 34.77
+Cost - mean=4043, median 2500       1st Quantile - 970   3rd Quantile - 4775
+Children - mean=1, median 1 
+
+
+## Data Cleaning
+
+There are some missing values in the data we have. First, let's check for which columns have NAs present. Then we will either replace the missing values with the mean of that data column or delete rows with NAs
+
+```{r}
+sum(is.na(train_set$age))
+sum(is.na(train_set$bmi))
+sum(is.na(train_set$children))
+sum(is.na(train_set$smoker))
+sum(is.na(train_set$location))
+sum(is.na(train_set$location_type))
+sum(is.na(train_set$education_level))
+sum(is.na(train_set$yearly_physical))
+sum(is.na(train_set$exercise))
+sum(is.na(train_set$married))
+sum(is.na(train_set$hypertension))
+sum(is.na(train_set$gender))
+sum(is.na(train_set$cost))
+```
+There are missing values present in the bmi and hypertension columns
+
+As hypertension is a binary data type column, we cannot replace missing values with mean or na_interpolation. We will delete all rows having missing values for hypertention attribute.
+
+bmi is a continuos value type column, we can use na_interpolation to substitute the NAs present in the column
+
+
+```{r}
+# import imputeTS library
+library(imputeTS)
+# using na_interpolation replace NAs in bmi column
+train_set$bmi <- na_interpolation(train_set$bmi, option = "linear")
+
+
+# remove all rows in train_set where hypertention has NA
+train_set <- train_set[!is.na(train_set$hypertension),]
+
+
+sum(is.na(train_set$bmi))
+sum(is.na(train_set$hypertension))
+
+# all NAs either removed or replaced successfully
+
+DF_Copy <- train_set
+# safe a copy of cleaned dataframe
+```
+## Feature Identification for Correlation with Cost Parameter
+
+We visualize the age, bmi, and children attributes with cost as a scatter plot to understand the correlation of cost with each attribute
+
+```{r}
+# scatter plot to understand correlation of factors
+
+# import ggplot library 
+library(ggplot2)
+# age vs cost (smoker)
+ggplot(data=DF_Copy,aes(x=age, y=cost,colour = smoker))+ geom_point() +
+  geom_smooth(method = "lm")+
+  theme_dark()
+
+# age vs cost (exercise)
+ggplot(data=DF_Copy,aes(x=age, y=cost,colour = exercise))+ geom_point() +
+  geom_smooth(method = "lm")+
+  theme_dark()
+
+# bmi vs cost (smoker)
+ggplot(data=DF_Copy,aes(x=bmi, y=cost,colour = smoker,))+ geom_point() +
+  geom_smooth(method = "lm")+
+  theme_dark()
+
+# bmi vs cost (exercise)
+ggplot(data=DF_Copy,aes(x=bmi, y=cost,colour = exercise))+ geom_point() +
+  geom_smooth(method = "lm")+
+  theme_dark()
+
+```
+```{r}
+ggplot(train_set,aes(x = age)) + 
+  geom_bar(fill = 'lightblue') +theme_classic()
+
+# +geom_density(aes(y = stat(count)))
+# add code to show distribution line
+
+age_avg_cost <- DF_Copy %>%
+  group_by(age) %>%
+  summarise_at(vars(cost), list(name = mean)) %>%
+  arrange(desc(name)) 
+  
+ggplot(age_avg_cost, aes(x = age, y = name))+geom_col(fill="coral")+theme_classic()
+
+ltype_avg_cost <- DF_Copy %>%
+  group_by(gender) %>%
+  summarise_at(vars(cost), list(name = mean)) %>%
+  arrange(desc(name)) 
+ggplot(ltype_avg_cost, aes(x = gender, y = name))+geom_col(width = 0.25,fill="coral")+theme_classic()
+```
+
+```{r}
+us<-map_data("state")
+DF_Copy$location<-tolower(DF_Copy$location)
+m1<-aggregate(DF_Copy$cost,by=list(DF_Copy$location),FUN=mean)
+m2<-aggregate(DF_Copy$cost,by=list(DF_Copy$location),FUN=max)
+m3<-aggregate(DF_Copy$cost,by=list(DF_Copy$location),FUN=min)
+m1<-m1%>%rename(location=Group.1)
+m2<-m2%>%rename(location=Group.1)
+aggmerge1<-merge(m1,m2,by = "location" )
+m3<-m3%>%rename(location=Group.1)
+aggmerge2<-merge(aggmerge1,m3,by= "location")
+aggmerge2<-aggmerge2%>%rename(min=x,average=x.x,max=x.y)
+m4<-aggmerge2[,c(2:4)]
+usmerge<-merge(us,aggmerge2,all.x=TRUE,by.x="region",by.y="location")
+usmerge<-usmerge%>%arrange(order)
+
+usmap1<-ggplot(usmerge)+geom_polygon(aes(x=long,y=lat,group=group,fill=average),color="grey")+coord_map()
+usmap1
+
+
+state_avg_cost <- DF_Copy %>%
+  group_by(location) %>%
+  summarise_at(vars(cost), list(name = mean)) %>%
+  arrange(desc(name))
+state_avg_cost
+```
+```{r}
+usmap2<-ggplot(usmerge)+geom_polygon(aes(x=long,y=lat,group=group,fill=max),color="grey")+coord_map()
+usmap2
+```
+```{r}
+usmap3<-ggplot(usmerge)+geom_polygon(aes(x=long,y=lat,group=group,fill=min),color="grey")+coord_map()
+usmap3
+```
+It is quite evident that age and bmi has a positive correlation with healthcare cost of a customer.
+Where as children has very weak positive correlation with cost.
+
+We would like to quantify the correlation in terms of a correlation value.
+This can be achieved with a correlation table and heatmap of attributes
+```{r}
+library(tidyverse)
+# subset the dataframe to numerical fields
+sub <- train_set %>%
+  select(age,bmi,children,cost)
+
+# Correlation of age,bmi,children,cost in table form
+sub_cor <- round(cor(sub),
+      digits = 2)
+print(sub_cor)
+```
+```{r}
+# heat map of correlation of numeric parameters
+# melt the correlation matrix of numeric parameters
+library(reshape2)
+sub_melt <- melt(sub_cor)
+
+# plot heat map
+library(ggplot2)
+cor_heat_map <- ggplot(data = sub_melt, aes(x=Var1, y=Var2,fill=value)) +geom_tile()
+cor_heat_map
+```
+## Categorizing Health Care Cost (Expensive / Not Expensive)
+
+To decidce the cap cost where it becomes expensive for the health care company
+to cover health insurance we need to look at the cost spread for the data 
+available to us.
+
+  - distribution of cost (box plot or histogram)
+  - mean, median, range of cost
+  - quantile values of cost
+  
+```{r}
+boxplot(train_set$cost,
+  ylab = "cost",
+  main = "Boxplot of healthcare cost"
+)
+text(y=fivenum(train_set$cost),labels=fivenum(train_set$cost),x=1.25)
+```
+
+
+```{r}
+quantile(train_set$cost,probs = c(0.25,0.5,0.75,1))
+# there is a huge difference in the 75th and 100th quantile values
+
+quantile(train_set$cost,probs = seq(from=0.7,to=1,by=0.05))
+# the jump in cost starts to rise expotentially after the 75th quantile value
+
+mean(train_set$cost)
+# the mean is around the 70th quantile 
+
+range(train_set$cost)
+```
+Considering the quantile study and statistical values of the cost columns we want
+to decide the cap cost at 75th quantile or $4778.
+
+The cost values increases exponentially after the 75th quantile and the mean of 
+cost is 4049. We could have decided the cap of cost at 70th quantile, but considering
+little flexibilty for borderline customers and the high quantile jumps post 75th
+quantile we made this decision.
+
+Now we need to add a column or replace cost with a binary column for Expensive 
+or Not Expensive.
+```{r}
+train_set$expensive <- train_set$cost > 4778
+
+# saving this dataframe to duplicate data
+DF_Copy <- train_set
+train_set <- train_set[,-14]
+
+```
+Let's look at the 2 groups of expensive and non expensive customers
+
+We will lok at plots for the 2 types of customers by:
+  - bmi
+  - age
+  - exercise
+  - hypertension
+```{r}
+ggplot(train_set, aes(x = bmi, fill = expensive)) + 
+  geom_histogram() +                                              # Draw ggplot2 histogram with manual colors
+  scale_fill_manual(values = c("TRUE" = "lightyellow",
+                               "FALSE" = "lightblue1"))+
+  theme_dark()
+
+ggplot(train_set, aes(x = age, fill = expensive)) + 
+  geom_histogram() +                                              # Draw ggplot2 histogram with manual colors
+  scale_fill_manual(values = c("TRUE" = "tan1",
+                               "FALSE" = "lightgreen"))+
+  theme_dark()
+
+ggplot(train_set, aes(x = exercise, fill = expensive)) + 
+  geom_histogram(stat="count",binwidth = 10)
+
+```
+
+```{r}
+ggplot(data=DF_Copy,aes(x=age, y=cost)) + geom_point() +
+  theme_dark()+
+ aes(colour=expensive)
+```
+  
+# Prediction Model
+
+We will create a Support Vector Machine to predict whether a customer is Expensive
+or Not Expensive for the health care company.
+
+We need to have to subsets of data as train_set and test_set.
+
+train_set will be used to train our SVM model.
+test_set will be used to test our SVM model.
+
+
+```{r}
+test_set <- read.csv("HMO_TEST_data_sample (1).csv")
+test_set_sol <- read.csv("HMO_TEST_data_sample_solution (1).csv")
+# import readxl library to read in excel test file
+
+test_set <- merge(test_set,test_set_sol,by="X")
+str(test_set)
+```
+Creating SVM model:
+ - import necessary libraries to environment
+ - change all object coulmns to factors
+ - define SVM model with parameters
+```{r}
+# import kernlab and caret libraries to environment
+library(kernlab)
+library(caret)
+library(e1071)
+
+# check which columns are chr objects
+str(train_set)
+
+
+# change "chr" columns to "factor"
+# use as. factor to change data type of column
+
+train_set$smoker <- as.factor(train_set$smoker)
+train_set$location <- as.factor(train_set$location)
+train_set$location_type <- as.factor(train_set$location_type)
+train_set$education_level <- as.factor(train_set$education_level)
+train_set$yearly_physical <- as.factor(train_set$yearly_physical)
+train_set$exercise <- as.factor(train_set$exercise)
+train_set$married <- as.factor(train_set$married)
+train_set$gender <- as.factor(train_set$gender)
+train_set$expensive <- as.factor(train_set$expensive)
+
+
+# we also need to factorize the test data file 
+
+test_set$smoker <- as.factor(test_set$smoker)
+test_set$location <- as.factor(test_set$location)
+test_set$location_type <- as.factor(test_set$location_type)
+test_set$education_level <- as.factor(test_set$education_level)
+test_set$yearly_physical <- as.factor(test_set$yearly_physical)
+test_set$exercise <- as.factor(test_set$exercise)
+test_set$married <- as.factor(test_set$married)
+test_set$gender <- as.factor(test_set$gender)
+test_set$expensive <- as.factor(test_set$expensive)
+
+levels(test_set$location) <- levels(train_set$location)
+str(test_set)
+
+```
+```{r}
+set.seed(111)
+train_list <- createDataPartition(y=train_set$expensive,p=.90,list=FALSE)
+# dividing data into training and test sets 
+# createDataPartition() used to partition data randomly
+train_df <- train_set[train_list,]
+test_df <- train_set[-train_list,]
+
+```
+declaring a SVM model with defined cost and cross-validation parameters
+```{r}
+
+SVM_1 <- ksvm(expensive ~ ., data=train_df,C = 2,cross = 3, prob.model = TRUE)
+SVM_1
+# training error of 11.8 %, training accuracy of 88.2 %
+
+svmpredict <- predict(SVM_1, test_df, type = "response")
+svmpredict
+
+CM <- confusionMatrix(svmpredict, test_df$expensive)
+CM
+```
+Predicting cost classification:
+ - we need to first predict the cost classification for the test data
+ - look at the confusion matrix for the predicted values
+```{r}
+svmpredict1 <- predict(SVM_1, test_set, type = "response")
+svmpredict1
+```
+
+Let's tabulate the confusion matrix for the predicted values with the test data solutions provided
+```{r}
+
+CM1 <- confusionMatrix(svmpredict1, test_set$expensive)
+CM1
+
+# predicted accuracy of 60 %
+# sensitivity is 75 %
+# kappa = 0.1304
+```
+
+```{r}
+library(rpart)
+library(rpart.plot)
+dataTree <- rpart(expensive ~ ., data = DF_Copy[,-14])
+prp(dataTree, faclen = 0, cex = 0.8, extra = 1)
+
+dataTree
+```
+We also need to find trends why health care cost of a subset of customers expensive.
+
+For this purpose we will explore Association Rules to define rules leading to
+expensive cost 
+
+  - We need to remove index column from the train_set data frame
+  - change numerical columns to factor data type
+```{r}
+
+assoc_data <-train_set[,-1]
+
+assoc_data$age <- as.factor(assoc_data$age)
+assoc_data$bmi <- as.factor(assoc_data$bmi)
+assoc_data$children <- as.factor(assoc_data$children)
+assoc_data$hypertension <- as.factor(assoc_data$hypertension)
+
+str(assoc_data)
+```
+  - Import required libraries (arules, arulesViz)
+  - change data into transaction
+  - create apriori funstion to generate rules 
+```{r}
+library(arules)
+library(arulesViz)
+
+data_T <- as(assoc_data, "transactions")
+
+
+itemFrequencyPlot(data_T, topN=20)
+
+# Rules
+rules_1 <- apriori(data_T,
+                   parameter=list(supp=0.065, conf=0.82),
+                   control=list(verbose=F), # control algorithm performance
+                   appearance=list(default="lhs",rhs=("expensive=TRUE")))
+summary(rules_1)
+inspect(rules_1)
+```
+With Support = 0.065 and Confidence = 0.80, we are able to generate 7 association
+rules for condition where cost is expensive.
+
+  - smoker = yes and exercise = Not-Active for all 4 rules
+  - hypertension didn't seem to increase health care cost
+  - gender, education, location, married are all observed once.
+  
